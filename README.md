@@ -690,7 +690,7 @@ Generally speaking, you can extract the type you need, *provided it can be conve
 - **Invalid conversions throw a fatal error.**
     
     ```swift
-    let row = Row.fetchOne(db, "SELECT 'foo'")!
+    let row = Row.fetchOne(db, "SELECT 'Mom’s birthday'")!
     row.value(atIndex: 0) as String  // "foo"
     row.value(atIndex: 0) as NSDate? // fatal error: could not convert "foo" to NSDate.
     row.value(atIndex: 0) as NSDate  // fatal error: could not convert "foo" to NSDate.
@@ -3426,7 +3426,7 @@ They uncover programmer errors, false assumptions, and prevent misuses. Here are
 - The code asks for an NSDate, when the database contains garbage:
     
     ```swift
-    // fatal error: could not convert "Mom's birthday" to NSDate.
+    // fatal error: could not convert "Mom’s birthday" to NSDate.
     let date: NSDate? = row.value(named: "date")
     ```
     
