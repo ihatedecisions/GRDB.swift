@@ -416,7 +416,7 @@ public indirect enum _SQLExpression {
     case Literal(String, StatementArguments?)
     
     /// For example: `1` or `'foo'`
-    case Value(DatabaseValueConvertible?)   // TODO: switch to DatabaseValue?
+    case Value(DatabaseValue)
     
     /// For example: `name`, `table.name`
     case Identifier(identifier: String, sourceName: String?)
@@ -485,9 +485,6 @@ public indirect enum _SQLExpression {
             return sql
             
         case .Value(let value):
-            guard let value = value else {
-                return "NULL"
-            }
             if arguments == nil {
                 return value.sqlLiteral
             } else {
@@ -547,11 +544,11 @@ public indirect enum _SQLExpression {
             
         case .Equal(let lhs, let rhs):
             switch (lhs, rhs) {
-            case (let lhs, .Value(let rhs)) where rhs == nil:
+            case (let lhs, .Value(DatabaseValue.Null)):
                 // Swiftism!
                 // Turn `filter(a == nil)` into `a IS NULL` since the intention is obviously to check for NULL. `a = NULL` would evaluate to NULL.
                 return "(" + lhs.sql(&arguments) + " IS NULL)"
-            case (.Value(let lhs), let rhs) where lhs == nil:
+            case (.Value(DatabaseValue.Null), let rhs):
                 // Swiftism!
                 return "(" + rhs.sql(&arguments) + " IS NULL)"
             default:
@@ -560,11 +557,11 @@ public indirect enum _SQLExpression {
             
         case .NotEqual(let lhs, let rhs):
             switch (lhs, rhs) {
-            case (let lhs, .Value(let rhs)) where rhs == nil:
+            case (let lhs, .Value(DatabaseValue.Null)):
                 // Swiftism!
                 // Turn `filter(a != nil)` into `a IS NOT NULL` since the intention is obviously to check for NULL. `a <> NULL` would evaluate to NULL.
                 return "(" + lhs.sql(&arguments) + " IS NOT NULL)"
-            case (.Value(let lhs), let rhs) where lhs == nil:
+            case (.Value(DatabaseValue.Null), let rhs):
                 // Swiftism!
                 return "(" + rhs.sql(&arguments) + " IS NOT NULL)"
             default:
@@ -573,9 +570,9 @@ public indirect enum _SQLExpression {
             
         case .Is(let lhs, let rhs):
             switch (lhs, rhs) {
-            case (let lhs, .Value(let rhs)) where rhs == nil:
+            case (let lhs, .Value(let rhs)) where rhs.isNull:
                 return "(" + lhs.sql(&arguments) + " IS NULL)"
-            case (.Value(let lhs), let rhs) where lhs == nil:
+            case (.Value(let lhs), let rhs) where lhs.isNull:
                 return "(" + rhs.sql(&arguments) + " IS NULL)"
             default:
                 return "(" + lhs.sql(&arguments) + " IS " + rhs.sql(&arguments) + ")"
@@ -583,9 +580,9 @@ public indirect enum _SQLExpression {
             
         case .IsNot(let lhs, let rhs):
             switch (lhs, rhs) {
-            case (let lhs, .Value(let rhs)) where rhs == nil:
+            case (let lhs, .Value(let rhs)) where rhs.isNull:
                 return "(" + lhs.sql(&arguments) + " IS NOT NULL)"
-            case (.Value(let lhs), let rhs) where lhs == nil:
+            case (.Value(let lhs), let rhs) where lhs.isNull:
                 return "(" + rhs.sql(&arguments) + " IS NOT NULL)"
             default:
                 return "(" + lhs.sql(&arguments) + " IS NOT " + rhs.sql(&arguments) + ")"

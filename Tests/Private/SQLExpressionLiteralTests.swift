@@ -17,8 +17,8 @@ class SQLExpressionLiteralTests: GRDBTestCase {
         XCTAssertEqual(sql, "((\"foo\" = ? COLLATE NOCASE) AND (\"baz\" >= ?))")
         let values = arguments!.values
         XCTAssertEqual(values.count, 2)
-        XCTAssertEqual((values[0] as! String), "'fooéı👨👨🏿🇫🇷🇨🇮'")
-        XCTAssertEqual((values[1] as! Int), 1)
+        XCTAssertEqual(String.fromDatabaseValue(values[0]!.databaseValue)!, "'fooéı👨👨🏿🇫🇷🇨🇮'")
+        XCTAssertEqual(Int.fromDatabaseValue(values[1]!.databaseValue)!, 1)
     }
     
     func testWithoutArguments() {
