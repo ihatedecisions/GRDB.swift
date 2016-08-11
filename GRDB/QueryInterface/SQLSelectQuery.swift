@@ -20,7 +20,7 @@
 public struct _SQLSelectQuery {
     var selection: [_SQLSelectable]
     var distinct: Bool
-    var source: _SQLSource?
+    var source: SQLSource?
     var whereExpression: _SQLExpression?
     var groupByExpressions: [_SQLExpression]
     var orderings: [_SQLOrdering]
@@ -31,7 +31,7 @@ public struct _SQLSelectQuery {
     init(
         select selection: [_SQLSelectable],
         distinct: Bool = false,
-        from source: _SQLSource? = nil,
+        from source: SQLSource? = nil,
         filter whereExpression: _SQLExpression? = nil,
         groupBy groupByExpressions: [_SQLExpression] = [],
         orderBy orderings: [_SQLOrdering] = [],
@@ -58,10 +58,10 @@ public struct _SQLSelectQuery {
         }
         
         assert(!selection.isEmpty)
-        sql += " " + selection.map { $0.resultColumnSQL(&arguments) }.joinWithSeparator(", ")
+        sql += " " + selection.map { $0.resultColumnSQL(from: source, &arguments) }.joinWithSeparator(", ")
         
         if let source = source {
-            sql += " FROM " + source.sql(&arguments)
+            sql += " FROM " + source.sourceSQL(&arguments)
         }
         
         if let whereExpression = whereExpression {
@@ -115,7 +115,7 @@ public struct _SQLSelectQuery {
             return trivialCountQuery
         }
         
-        guard let source = source, case .Table(name: let tableName, alias: let alias) = source else {
+        guard let source = source as? SQLSourceTable else {
             // SELECT ... FROM (something which is not a table)
             return trivialCountQuery
         }
@@ -124,15 +124,13 @@ public struct _SQLSelectQuery {
         if selection.count == 1 {
             let selectable = self.selection[0]
             switch selectable.sqlSelectableKind {
-            case .Star(sourceName: let sourceName):
+            case .Star(source: let starSource):
                 guard !distinct else {
                     return trivialCountQuery
                 }
                 
-                if let sourceName = sourceName {
-                    guard sourceName == tableName || sourceName == alias else {
-                        return trivialCountQuery
-                    }
+                if starSource !== source {
+                    return trivialCountQuery
                 }
                 
                 // SELECT * FROM tableName ...
@@ -157,7 +155,7 @@ public struct _SQLSelectQuery {
                     // ->
                     // SELECT COUNT(*) FROM tableName ...
                     var countQuery = unorderedQuery
-                    countQuery.selection = [_SQLExpression.Count(_SQLResultColumn.Star(nil))]
+                    countQuery.selection = [_SQLExpression.Count(_SQLResultColumn.Star(source: nil))]
                     return countQuery
                 }
             }
@@ -172,7 +170,7 @@ public struct _SQLSelectQuery {
             // ->
             // SELECT COUNT(*) FROM tableName ...
             var countQuery = unorderedQuery
-            countQuery.selection = [_SQLExpression.Count(_SQLResultColumn.Star(nil))]
+            countQuery.selection = [_SQLExpression.Count(_SQLResultColumn.Star(source: nil))]
             return countQuery
         }
     }
@@ -180,8 +178,8 @@ public struct _SQLSelectQuery {
     // SELECT COUNT(*) FROM (self)
     private var trivialCountQuery: _SQLSelectQuery {
         return _SQLSelectQuery(
-            select: [_SQLExpression.Count(_SQLResultColumn.Star(nil))],
-            from: .Query(query: unorderedQuery, alias: nil))
+            select: [_SQLExpression.Count(_SQLResultColumn.Star(source: nil))],
+            from: SQLSourceQuery(query: unorderedQuery, alias: nil))
     }
     
     /// Remove ordering
@@ -194,26 +192,51 @@ public struct _SQLSelectQuery {
 }
 
 
-// MARK: - _SQLSource
+// MARK: - SQLSource
 
-indirect enum _SQLSource {
-    case Table(name: String, alias: String?)
-    case Query(query: _SQLSelectQuery, alias: String?)
+/// TODO
+public protocol SQLSource : class {
+    var alias: String? { get set }
+    var identifier: String { get }
+    func sourceSQL(inout arguments: StatementArguments?) -> String
+}
+
+class SQLSourceTable : SQLSource {
+    let name: String
+    var alias: String?
     
-    func sql(inout arguments: StatementArguments?) -> String {
-        switch self {
-        case .Table(let table, let alias):
-            if let alias = alias {
-                return table.quotedDatabaseIdentifier + " AS " + alias.quotedDatabaseIdentifier
-            } else {
-                return table.quotedDatabaseIdentifier
-            }
-        case .Query(let query, let alias):
-            if let alias = alias {
-                return "(" + query.sql(&arguments) + ") AS " + alias.quotedDatabaseIdentifier
-            } else {
-                return "(" + query.sql(&arguments) + ")"
-            }
+    var identifier: String { return alias ?? name }
+    
+    init(name: String, alias: String?) {
+        self.name = name
+        self.alias = alias
+    }
+    
+    func sourceSQL(inout arguments: StatementArguments?) -> String {
+        if let alias = alias {
+            return name.quotedDatabaseIdentifier + " AS " + alias.quotedDatabaseIdentifier
+        } else {
+            return name.quotedDatabaseIdentifier
+        }
+    }
+}
+
+class SQLSourceQuery : SQLSource {
+    let query: _SQLSelectQuery
+    var alias: String?
+    
+    var identifier: String { return alias! }
+    
+    init(query: _SQLSelectQuery, alias: String?) {
+        self.query = query
+        self.alias = alias
+    }
+    
+    func sourceSQL(inout arguments: StatementArguments?) -> String {
+        if let alias = alias {
+            return "(" + query.sql(&arguments) + ") AS " + alias.quotedDatabaseIdentifier
+        } else {
+            return "(" + query.sql(&arguments) + ")"
         }
     }
 }
@@ -337,7 +360,7 @@ extension _SpecificSQLExpressible where Self: _SQLSelectable {
     /// Do not use it directly.
     ///
     /// See https://github.com/groue/GRDB.swift/#the-query-interface
-    public func resultColumnSQL(inout arguments: StatementArguments?) -> String {
+    public func resultColumnSQL(from source: SQLSource?, inout _ arguments: StatementArguments?) -> String {
         return sqlExpression.sql(&arguments)
     }
     
@@ -354,7 +377,7 @@ extension _SpecificSQLExpressible where Self: _SQLSelectable {
     ///
     /// See https://github.com/groue/GRDB.swift/#the-query-interface
     public var sqlSelectableKind: _SQLSelectableKind {
-        return .Expression(sqlExpression)
+        return .Expression(expression: sqlExpression)
     }
 }
 
@@ -622,7 +645,7 @@ extension _SQLExpression : _SQLOrdering {}
 ///
 /// See https://github.com/groue/GRDB.swift/#the-query-interface
 public protocol _SQLSelectable {
-    func resultColumnSQL(inout arguments: StatementArguments?) -> String
+    func resultColumnSQL(from source: SQLSource?, inout _ arguments: StatementArguments?) -> String
     func countedSQL(inout arguments: StatementArguments?) -> String
     var sqlSelectableKind: _SQLSelectableKind { get }
 }
@@ -632,22 +655,22 @@ public protocol _SQLSelectable {
 ///
 /// See https://github.com/groue/GRDB.swift/#the-query-interface
 public enum _SQLSelectableKind {
-    case Expression(_SQLExpression)
-    case Star(sourceName: String?)
+    case Star(source: SQLSource?)
+    case Expression(expression: _SQLExpression)
 }
 
 enum _SQLResultColumn {
-    case Star(String?)
+    case Star(source: SQLSource?)
     case Expression(expression: _SQLExpression, alias: String)
 }
 
 extension _SQLResultColumn : _SQLSelectable {
     
-    func resultColumnSQL(inout arguments: StatementArguments?) -> String {
+    func resultColumnSQL(from source: SQLSource?, inout _ arguments: StatementArguments?) -> String {
         switch self {
-        case .Star(let sourceName):
-            if let sourceName = sourceName {
-                return sourceName.quotedDatabaseIdentifier + ".*"
+        case .Star(let starSource):
+            if let starSource = starSource where starSource !== source {
+                return starSource.identifier.quotedDatabaseIdentifier + ".*"
             } else {
                 return "*"
             }
@@ -667,10 +690,10 @@ extension _SQLResultColumn : _SQLSelectable {
     
     var sqlSelectableKind: _SQLSelectableKind {
         switch self {
-        case .Star(let sourceName):
-            return .Star(sourceName: sourceName)
+        case .Star(let source):
+            return .Star(source: source)
         case .Expression(expression: let expression, alias: _):
-            return .Expression(expression)
+            return .Expression(expression: expression)
         }
     }
 }

@@ -8,7 +8,8 @@ public struct QueryInterfaceRequest<T> {
     ///
     /// It represents the SQL query `SELECT * FROM tableName`.
     public init(tableName: String) {
-        self.init(query: _SQLSelectQuery(select: [_SQLResultColumn.Star(nil)], from: .Table(name: tableName, alias: nil)))
+        let source = SQLSourceTable(name: tableName, alias: nil)
+        self.init(query: _SQLSelectQuery(select: [_SQLResultColumn.Star(source: source)], from: source))
     }
     
     init(query: _SQLSelectQuery) {
