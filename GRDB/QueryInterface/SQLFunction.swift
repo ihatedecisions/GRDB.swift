@@ -35,8 +35,8 @@ public func average(value: _SpecificSQLExpressible) -> _SQLExpression {
 /// Returns an SQL expression.
 ///
 /// See https://github.com/groue/GRDB.swift/#sql-functions
-public func count(counted: _SQLSelectable) -> _SQLExpression {
-    return .Count(counted)
+public func count(counted: _SpecificSQLExpressible) -> _SQLExpression {
+    return .Count(counted.sqlExpression)
 }
 
 
