@@ -155,7 +155,7 @@ public struct _SQLSelectQuery {
                     // ->
                     // SELECT COUNT(*) FROM tableName ...
                     var countQuery = unorderedQuery
-                    countQuery.selection = [_SQLExpression.Count(_SQLResultColumn.Star(source: nil))]
+                    countQuery.selection = [_SQLExpression.Count(_SQLSelectionElement.Star(source: countQuery.source!))]
                     return countQuery
                 }
             }
@@ -170,16 +170,17 @@ public struct _SQLSelectQuery {
             // ->
             // SELECT COUNT(*) FROM tableName ...
             var countQuery = unorderedQuery
-            countQuery.selection = [_SQLExpression.Count(_SQLResultColumn.Star(source: nil))]
+            countQuery.selection = [_SQLExpression.Count(_SQLSelectionElement.Star(source: countQuery.source!))]
             return countQuery
         }
     }
     
     // SELECT COUNT(*) FROM (self)
     private var trivialCountQuery: _SQLSelectQuery {
+        let source = SQLSourceQuery(query: unorderedQuery, alias: nil)
         return _SQLSelectQuery(
-            select: [_SQLExpression.Count(_SQLResultColumn.Star(source: nil))],
-            from: SQLSourceQuery(query: unorderedQuery, alias: nil))
+            select: [_SQLExpression.Count(_SQLSelectionElement.Star(source: source))],
+            from: source)
     }
     
     /// Remove ordering
@@ -360,7 +361,7 @@ extension _SpecificSQLExpressible where Self: _SQLSelectable {
     /// Do not use it directly.
     ///
     /// See https://github.com/groue/GRDB.swift/#the-query-interface
-    public func resultColumnSQL(from source: SQLSource?, inout _ arguments: StatementArguments?) -> String {
+    public func resultColumnSQL(from querySource: SQLSource?, inout _ arguments: StatementArguments?) -> String {
         return sqlExpression.sql(&arguments)
     }
     
@@ -401,7 +402,7 @@ extension _SpecificSQLExpressible {
     ///
     /// See https://github.com/groue/GRDB.swift/#the-query-interface
     public func aliased(alias: String) -> _SQLSelectable {
-        return _SQLResultColumn.Expression(expression: sqlExpression, alias: alias)
+        return _SQLSelectionElement.Expression(expression: sqlExpression, alias: alias)
     }
 }
 
@@ -645,7 +646,7 @@ extension _SQLExpression : _SQLOrdering {}
 ///
 /// See https://github.com/groue/GRDB.swift/#the-query-interface
 public protocol _SQLSelectable {
-    func resultColumnSQL(from source: SQLSource?, inout _ arguments: StatementArguments?) -> String
+    func resultColumnSQL(from querySource: SQLSource?, inout _ arguments: StatementArguments?) -> String
     func countedSQL(inout arguments: StatementArguments?) -> String
     var sqlSelectableKind: _SQLSelectableKind { get }
 }
@@ -655,24 +656,24 @@ public protocol _SQLSelectable {
 ///
 /// See https://github.com/groue/GRDB.swift/#the-query-interface
 public enum _SQLSelectableKind {
-    case Star(source: SQLSource?)
+    case Star(source: SQLSource)
     case Expression(expression: _SQLExpression)
 }
 
-enum _SQLResultColumn {
-    case Star(source: SQLSource?)
+enum _SQLSelectionElement {
+    case Star(source: SQLSource)
     case Expression(expression: _SQLExpression, alias: String)
 }
 
-extension _SQLResultColumn : _SQLSelectable {
+extension _SQLSelectionElement : _SQLSelectable {
     
-    func resultColumnSQL(from source: SQLSource?, inout _ arguments: StatementArguments?) -> String {
+    func resultColumnSQL(from querySource: SQLSource?, inout _ arguments: StatementArguments?) -> String {
         switch self {
         case .Star(let starSource):
-            if let starSource = starSource where starSource !== source {
-                return starSource.identifier.quotedDatabaseIdentifier + ".*"
-            } else {
+            if starSource === querySource {
                 return "*"
+            } else {
+                return starSource.identifier.quotedDatabaseIdentifier + ".*"
             }
         case .Expression(expression: let expression, alias: let alias):
             return expression.sql(&arguments) + " AS " + alias.quotedDatabaseIdentifier
