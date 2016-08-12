@@ -200,9 +200,23 @@ public protocol SQLSource : class {
     func sourceSQL(inout arguments: StatementArguments?) -> String
 }
 
+/// TODO
 public protocol SQLSourceWithIdentifier : SQLSource {
     var alias: String? { get set }
     var identifier: String { get }
+    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier
+}
+
+extension SQLSourceWithIdentifier {
+    /// TODO: documentation
+    public subscript(columnName: String) -> SQLColumn {
+        return SQLColumn(columnName, source: self)
+    }
+    
+    /// TODO: documentation
+    public subscript(column: SQLColumn) -> SQLColumn {
+        return self[column.name]
+    }
 }
 
 class SQLSourceTable {
@@ -215,15 +229,21 @@ class SQLSourceTable {
     }
 }
 
-extension SQLSourceTable : SQLSourceWithIdentifier {
-    var identifier: String { return alias ?? name }
-    
+extension SQLSourceTable : SQLSource {
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         if let alias = alias {
             return name.quotedDatabaseIdentifier + " AS " + alias.quotedDatabaseIdentifier
         } else {
             return name.quotedDatabaseIdentifier
         }
+    }
+}
+
+extension SQLSourceTable : SQLSourceWithIdentifier {
+    var identifier: String { return alias ?? name }
+    
+    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier {
+        return SQLSourceJoin(leftSource: self, joinItems: [item])
     }
 }
 
@@ -237,9 +257,7 @@ class SQLSourceQuery {
     }
 }
 
-extension SQLSourceQuery : SQLSourceWithIdentifier {
-    var identifier: String { return alias! }
-    
+extension SQLSourceQuery : SQLSource {
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         if let alias = alias {
             return "(" + query.sql(&arguments) + ") AS " + alias.quotedDatabaseIdentifier
@@ -249,80 +267,114 @@ extension SQLSourceQuery : SQLSourceWithIdentifier {
     }
 }
 
+extension SQLSourceQuery : SQLSourceWithIdentifier {
+    var identifier: String { return alias! }
+    
+    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier {
+        return SQLSourceJoin(leftSource: self, joinItems: [item])
+    }
+}
+
 
 // MARK: - Joins
 
 /// TODO: documentation
-public protocol SQLRelation {
+public struct JoinItem {
+    let scopeName: String
+    var required: Bool
+    var selection: (SQLSourceWithIdentifier) -> [_SQLSelectable]
+    let table: String
+    var alias: String?
+    var condition: (left: SQLSourceWithIdentifier, right: SQLSourceWithIdentifier) -> _SQLExpressible
+    var rightItems: [JoinItem]
 }
 
 
-extension SQLRelation {
+/// TODO: documentation
+public protocol JoinItemConvertible {
+    var joinItem: JoinItem { get }
+}
+
+extension JoinItem : JoinItemConvertible {
+    public var joinItem: JoinItem { return self }
+}
+
+extension JoinItemConvertible {
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func include(relations: SQLRelation...) -> SQLRelation {
-        return include(required: false, relations)
+    public func include(items: JoinItemConvertible...) -> JoinItem {
+        return include(required: false, items)
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func include(required required: Bool, _ relations: SQLRelation...) -> SQLRelation {
-        return include(required: required, relations)
+    public func include(required required: Bool, _ items: JoinItemConvertible...) -> JoinItem {
+        return include(required: required, items)
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func include(relations: [SQLRelation]) -> SQLRelation {
-        return include(required: false, relations)
+    public func include(items: [JoinItemConvertible]) -> JoinItem {
+        return include(required: false, items)
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func include(required required: Bool, _ relations: [SQLRelation]) -> SQLRelation {
-        return self
-//        return ChainedRelation(baseRelation: self, joins: relations.map { Join(included: true, kind: required ? .Inner : .Left, relation: $0.fork()) })
+    public func include(required required: Bool, _ items: [JoinItemConvertible]) -> JoinItem {
+        var item = joinItem
+        item.rightItems.appendContentsOf(items.map {
+            var item = $0.joinItem
+            item.required = required
+            return item
+            })
+        return item
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func join(relations: SQLRelation...) -> SQLRelation {
-        return join(required: false, relations)
+    public func join(items: JoinItemConvertible...) -> JoinItem {
+        return join(required: false, items)
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func join(required required: Bool, _ relations: SQLRelation...) -> SQLRelation {
-        return join(required: required, relations)
+    public func join(required required: Bool, _ items: JoinItemConvertible...) -> JoinItem {
+        return join(required: required, items)
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func join(relations: [SQLRelation]) -> SQLRelation {
-        return join(required: false, relations)
+    public func join(items: [JoinItemConvertible]) -> JoinItem {
+        return join(required: false, items)
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func join(required required: Bool, _ relations: [SQLRelation]) -> SQLRelation {
-        return self
-//        return ChainedRelation(baseRelation: self, joins: relations.map { Join(included: false, kind: required ? .Inner : .Left, relation: $0.fork()) })
+    public func join(required required: Bool, _ items: [JoinItemConvertible]) -> JoinItem {
+        var item = joinItem
+        item.rightItems.appendContentsOf(items.map {
+            var item = $0.joinItem
+            item.required = required
+            item.selection = { _ in [] }
+            return item
+            })
+        return item
     }
     
     /// TODO: documentation
-    /// Extension method
     @warn_unused_result
-    public func filter(sql sql: String, arguments: StatementArguments? = nil) -> SQLRelation {
-        return self
-//        return filter { _ in _SQLExpression.Literal("(\(sql))", arguments) }
+    public func aliased(alias: String) -> JoinItem {
+        var item = joinItem
+        item.alias = alias
+        return item
+    }
+    
+    /// TODO: documentation
+    @warn_unused_result
+    public func filter(sql sql: String, arguments: StatementArguments? = nil) -> JoinItem {
+        return joinItem
+        //        return filter { _ in _SQLExpression.Literal("(\(sql))", arguments) }
     }
 }
 
@@ -330,18 +382,16 @@ extension SQLRelation {
 /// TODO
 public struct ForeignRelation {
     /// TODO
-    public let name: String // Scope name
-    var alias: String?      // Default table alias in SQL
-    let tableName: String   // Table name
+    public let scopeName: String
+    var alias: String?
+    let table: String
     let foreignKey: [String: String]
     
     /// TODO
-    public init(named name: String? = nil, to tableName: String, through foreignKey: [String: String]) {
-        self.name = name ?? tableName
-        if name != tableName {
-            self.alias = name
-        }
-        self.tableName = tableName
+    public init(named scopeName: String? = nil, to table: String, through foreignKey: [String: String]) {
+        self.scopeName = scopeName ?? table
+        self.alias = nil
+        self.table = table
         self.foreignKey = foreignKey
     }
 }
@@ -363,13 +413,51 @@ extension ForeignRelation {
     }
 }
 
-extension ForeignRelation : SQLRelation {
-    
+extension ForeignRelation : JoinItemConvertible {
+    public var joinItem: JoinItem {
+        return JoinItem(
+            scopeName: scopeName,
+            required: false,
+            selection: { [_SQLSelectionElement.Star(source: $0)] },
+            table: table,
+            alias: alias ?? scopeName,
+            condition: { (left, right) in self.foreignKey.map { (leftColumn, rightColumn) in right[rightColumn] == left[leftColumn] }.reduce(&&) },
+            rightItems: [])
+    }
 }
 
-class SQLSourceJoin : SQLSource {
+class SQLSourceJoin {
+    let leftSource: SQLSourceWithIdentifier
+    let joinItems: [JoinItem]
+    
+    init(leftSource: SQLSourceWithIdentifier, joinItems: [JoinItem]) {
+        self.leftSource = leftSource
+        self.joinItems = joinItems
+    }
+}
+
+extension SQLSourceJoin : SQLSource {
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         return "TODO"
+    }
+}
+
+extension SQLSourceJoin : SQLSourceWithIdentifier {
+    var alias: String? {
+        get {
+            return leftSource.alias
+        }
+        set {
+            leftSource.alias = newValue
+        }
+    }
+    
+    var identifier: String {
+        return leftSource.identifier
+    }
+    
+    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier {
+        return SQLSourceJoin(leftSource: leftSource, joinItems: joinItems + [item])
     }
 }
 
@@ -550,7 +638,7 @@ public indirect enum _SQLExpression {
     case Value(DatabaseValue)
     
     /// For example: `name`, `table.name`
-    case Identifier(identifier: String, sourceName: String?)
+    case Identifier(identifier: String, source: SQLSourceWithIdentifier?)
     
     /// For example: `name = 'foo' COLLATE NOCASE`
     case Collate(_SQLExpression, String)
@@ -626,9 +714,9 @@ public indirect enum _SQLExpression {
                 return "?"
             }
             
-        case .Identifier(let identifier, let sourceName):
-            if let sourceName = sourceName {
-                return sourceName.quotedDatabaseIdentifier + "." + identifier.quotedDatabaseIdentifier
+        case .Identifier(let identifier, let source):
+            if let source = source {
+                return source.identifier.quotedDatabaseIdentifier + "." + identifier.quotedDatabaseIdentifier
             } else {
                 return identifier.quotedDatabaseIdentifier
             }
@@ -840,7 +928,7 @@ extension _SQLSelectionElement : _SQLSelectable {
 ///
 /// See https://github.com/groue/GRDB.swift#the-query-interface
 public struct SQLColumn {
-    let sourceName: String?
+    let source: SQLSourceWithIdentifier?
     
     /// The name of the column
     public let name: String
@@ -848,12 +936,12 @@ public struct SQLColumn {
     /// Initializes a column given its name.
     public init(_ name: String) {
         self.name = name
-        self.sourceName = nil
+        self.source = nil
     }
     
-    init(_ name: String, sourceName: String?) {
+    init(_ name: String, source: SQLSourceWithIdentifier?) {
         self.name = name
-        self.sourceName = sourceName
+        self.source = source
     }
 }
 
@@ -864,7 +952,7 @@ extension SQLColumn : _SpecificSQLExpressible {
     ///
     /// See https://github.com/groue/GRDB.swift/#the-query-interface
     public var sqlExpression: _SQLExpression {
-        return .Identifier(identifier: name, sourceName: sourceName)
+        return .Identifier(identifier: name, source: source)
     }
 }
 

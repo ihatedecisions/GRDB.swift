@@ -240,70 +240,75 @@ extension QueryInterfaceRequest {
     
     /// TODO: doc
     @warn_unused_result
-    public func include(relations: SQLRelation...) -> QueryInterfaceRequest<T> {
-        return include(required: false, relations)
+    public func include(items: JoinItemConvertible...) -> QueryInterfaceRequest<T> {
+        return include(required: false, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public func include(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<T> {
-        return include(required: required, relations)
+    public func include(required required: Bool, _ items: JoinItemConvertible...) -> QueryInterfaceRequest<T> {
+        return include(required: required, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public func include(relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
-        return include(required: false, relations)
+    public func include(items: [JoinItemConvertible]) -> QueryInterfaceRequest<T> {
+        return include(required: false, items)
     }
     
     /// TODO: doc
     /// TODO: test that request.include([assoc1, assoc2]) <=> request.include([assoc1]).include([assoc2])
     @warn_unused_result
-    public func include(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
-        return self
-//        var query = self.query
-//        var source = query.source!
-//        for relation in relations {
-//            var relation = relation
-//            source = source.include(required: required, relation: &relation)
-//            query.joinedSelection.appendContentsOf(relation.selection(included: true))
-//        }
-//        query.source = source
-//        return QueryInterfaceRequest(query: query)
+    public func include(required required: Bool, _ items: [JoinItemConvertible]) -> QueryInterfaceRequest<T> {
+        var query = self.query
+        guard let sourceWithIdentifier = query.source as? SQLSourceWithIdentifier else {
+            fatalError("Can't join on non-identifiable source")
+        }
+        var source = sourceWithIdentifier
+        for item in items {
+            var item = item.joinItem
+            item.required = required
+            source = source.addJoinItem(item)
+        }
+        query.source = source
+        return QueryInterfaceRequest(query: query)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public func join(relations: SQLRelation...) -> QueryInterfaceRequest<T> {
-        return join(required: false, relations)
+    public func join(items: JoinItemConvertible...) -> QueryInterfaceRequest<T> {
+        return join(required: false, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public func join(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<T> {
-        return join(required: required, relations)
+    public func join(required required: Bool, _ items: JoinItemConvertible...) -> QueryInterfaceRequest<T> {
+        return join(required: required, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public func join(relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
-        return join(required: false, relations)
+    public func join(items: [JoinItemConvertible]) -> QueryInterfaceRequest<T> {
+        return join(required: false, items)
     }
     
     /// TODO: doc
     /// TODO: test that request.join([assoc1, assoc2]) <=> request.join([assoc1]).join([assoc2])
     @warn_unused_result
-    public func join(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
-        return self
-//        var query = self.query
-//        var source = query.source!
-//        for relation in relations {
-//            var relation = relation
-//            source = source.join(required: required, relation: &relation)
-//            query.joinedSelection.appendContentsOf(relation.selection(included: false))
-//        }
-//        query.source = source
-//        return QueryInterfaceRequest(query: query)
+    public func join(required required: Bool, _ items: [JoinItemConvertible]) -> QueryInterfaceRequest<T> {
+        var query = self.query
+        guard let sourceWithIdentifier = query.source as? SQLSourceWithIdentifier else {
+            fatalError("Can't join on non-identifiable source")
+        }
+        var source = sourceWithIdentifier
+        for item in items {
+            var item = item.joinItem
+            item.required = required
+            item.selection = { _ in [] }
+            source = source.addJoinItem(item)
+        }
+        query.source = source
+        return QueryInterfaceRequest(query: query)
     }
 }
 
@@ -414,50 +419,50 @@ extension TableMapping {
     
     /// TODO: doc
     @warn_unused_result
-    public static func include(relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
-        return include(required: false, relations)
+    public static func include(items: JoinItemConvertible...) -> QueryInterfaceRequest<Self> {
+        return include(required: false, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public static func include(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
-        return all().include(required: required, relations)
+    public static func include(required required: Bool, _ items: JoinItemConvertible...) -> QueryInterfaceRequest<Self> {
+        return all().include(required: required, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public static func include(relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
-        return include(required: false, relations)
+    public static func include(items: [JoinItemConvertible]) -> QueryInterfaceRequest<Self> {
+        return include(required: false, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public static func include(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
-        return all().include(required: required, relations)
+    public static func include(required required: Bool, _ items: [JoinItemConvertible]) -> QueryInterfaceRequest<Self> {
+        return all().include(required: required, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public static func join(relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
-        return join(required: false, relations)
+    public static func join(items: JoinItemConvertible...) -> QueryInterfaceRequest<Self> {
+        return join(required: false, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public static func join(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
-        return all().join(required: required, relations)
+    public static func join(required required: Bool, _ items: JoinItemConvertible...) -> QueryInterfaceRequest<Self> {
+        return all().join(required: required, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public static func join(relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
-        return join(required: false, relations)
+    public static func join(items: [JoinItemConvertible]) -> QueryInterfaceRequest<Self> {
+        return join(required: false, items)
     }
     
     /// TODO: doc
     @warn_unused_result
-    public static func join(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
-        return all().join(required: required, relations)
+    public static func join(required required: Bool, _ items: [JoinItemConvertible]) -> QueryInterfaceRequest<Self> {
+        return all().join(required: required, items)
     }
 }
 
