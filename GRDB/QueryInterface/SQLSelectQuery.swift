@@ -51,6 +51,26 @@ public struct _SQLSelectQuery {
     }
     
     func sql(inout arguments: StatementArguments?) -> String {
+        // Give all sources unique names
+        let concreteSource = source?.concreteSource
+        
+        if let concreteSource = concreteSource {
+            var sourcesByName: [String: [SQLConcreteSource]] = [:]
+            for source in concreteSource.properlyNamedSources {
+                let name = source.name
+                var sources = sourcesByName[name] ?? []
+                guard !sources.contains({ $0 === source }) else { continue }
+                sources.append(source)
+                sourcesByName[name] = sources
+            }
+            for (name, sources) in sourcesByName where sources.count > 1 {
+                for (index, source) in sources.enumerate() {
+                    source.name = "\(name)\(index)"
+                }
+            }
+        }
+
+        
         var sql = "SELECT"
         
         if distinct {
@@ -60,8 +80,8 @@ public struct _SQLSelectQuery {
         assert(!selection.isEmpty)
         sql += " " + selection.map { $0.selectionSQL(from: source, &arguments) }.joinWithSeparator(", ")
         
-        if let source = source {
-            sql += " FROM " + source.sourceSQL(&arguments)
+        if let concreteSource = concreteSource {
+            sql += " FROM " + concreteSource.sourceSQL(&arguments)
         }
         
         if let whereExpression = whereExpression {
@@ -197,12 +217,17 @@ public struct _SQLSelectQuery {
 
 /// TODO
 public protocol SQLSource : class {
-    var name: String { get set }
-    func sourceSQL(inout arguments: StatementArguments?) -> String
+    var concreteSource: SQLConcreteSource { get }
     func addJoinItem(item: JoinItem) -> SQLSource
 }
 
-extension SQLSource {
+public protocol SQLConcreteSource : SQLSource {
+    var name: String { get set }
+    var properlyNamedSources: [SQLConcreteSource] { get }
+    func sourceSQL(inout arguments: StatementArguments?) -> String
+}
+
+extension SQLConcreteSource {
     /// TODO: documentation
     public subscript(columnName: String) -> SQLColumn {
         return SQLColumn(columnName, source: self)
@@ -225,6 +250,16 @@ class SQLSourceTable {
 }
 
 extension SQLSourceTable : SQLSource {
+    var concreteSource: SQLConcreteSource {
+        return self
+    }
+    
+    func addJoinItem(item: JoinItem) -> SQLSource {
+        return SQLSourceJoin(leftSource: self, rightItems: [item])
+    }
+}
+
+extension SQLSourceTable : SQLConcreteSource {
     var name: String {
         get {
             return alias ?? tableName
@@ -234,16 +269,16 @@ extension SQLSourceTable : SQLSource {
         }
     }
     
+    var properlyNamedSources: [SQLConcreteSource] {
+        return [self]
+    }
+    
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         if let alias = alias {
             return tableName.quotedDatabaseIdentifier + " AS " + alias.quotedDatabaseIdentifier
         } else {
             return tableName.quotedDatabaseIdentifier
         }
-    }
-    
-    func addJoinItem(item: JoinItem) -> SQLSource {
-        return SQLSourceJoin(leftSource: self, rightItems: [item])
     }
 }
 
@@ -258,13 +293,27 @@ class SQLSourceQuery {
 }
 
 extension SQLSourceQuery : SQLSource {
+    var concreteSource: SQLConcreteSource {
+        return self
+    }
+    
+    func addJoinItem(item: JoinItem) -> SQLSource {
+        return SQLSourceJoin(leftSource: self, rightItems: [item])
+    }
+}
+
+extension SQLSourceQuery : SQLConcreteSource {
     var name: String {
         get {
-            return alias!
+            return alias ?? "q"
         }
         set {
             alias = newValue
         }
+    }
+    
+    var properlyNamedSources: [SQLConcreteSource] {
+        return [self]
     }
     
     func sourceSQL(inout arguments: StatementArguments?) -> String {
@@ -273,10 +322,6 @@ extension SQLSourceQuery : SQLSource {
         } else {
             return "(" + query.sql(&arguments) + ")"
         }
-    }
-    
-    func addJoinItem(item: JoinItem) -> SQLSource {
-        return SQLSourceJoin(leftSource: self, rightItems: [item])
     }
 }
 
@@ -287,11 +332,58 @@ extension SQLSourceQuery : SQLSource {
 public struct JoinItem {
     let scopeName: String
     var required: Bool
-    var selection: (SQLSource) -> [_SQLSelectable]
-    let table: String
+    var selection: (SQLConcreteSource) -> [_SQLSelectable]
+    let tableName: String
     var alias: String?
-    var condition: (left: SQLSource, right: SQLSource) -> _SQLExpressible
+    var condition: (left: SQLConcreteSource, right: SQLConcreteSource) -> _SQLExpressible
     var rightItems: [JoinItem]
+}
+
+extension JoinItem {
+    func concreteJoinItem(leftSource: SQLConcreteSource) -> ConcreteJoinItem {
+        let source = SQLSourceTable(tableName: tableName, alias: alias)
+        return ConcreteJoinItem(
+            scopeName: scopeName,
+            joinKind: required ? .Inner : .Left,
+            selection: selection(source),
+            source: source,
+            condition: condition(left: leftSource, right: source).sqlExpression,
+            rightItems: rightItems.map { $0.concreteJoinItem(source) })
+    }
+}
+
+/// TODO: documentation
+public enum SQLJoinKind : String {
+    case Inner = "JOIN"
+    case Left = "LEFT JOIN"
+    case Cross = "CROSS JOIN"
+}
+
+
+
+public struct ConcreteJoinItem {
+    let scopeName: String
+    var joinKind: SQLJoinKind
+    var selection: [_SQLSelectable]
+    let source: SQLConcreteSource
+    var condition: _SQLExpression
+    var rightItems: [ConcreteJoinItem]
+}
+
+extension ConcreteJoinItem {
+    func sql(inout arguments: StatementArguments?, innerJoinForbidden: Bool) -> String {
+        GRDBPrecondition(!innerJoinForbidden || joinKind == .Left, "Invalid required relation after a non-required relation.")
+        var sql = joinKind.rawValue + " " + source.sourceSQL(&arguments) + " ON " + condition.sql(&arguments)
+        
+        if !rightItems.isEmpty {
+            let innerJoinForbidden = (joinKind == .Left)
+            sql += " "
+            sql += rightItems.map {
+                $0.sql(&arguments, innerJoinForbidden: innerJoinForbidden)
+                }.joinWithSeparator(" ")
+        }
+        return sql
+    }
 }
 
 
@@ -389,14 +481,14 @@ public struct ForeignRelation {
     /// TODO
     public let scopeName: String
     var alias: String?
-    let table: String
+    let tableName: String
     let foreignKey: [String: String]
     
     /// TODO
-    public init(named scopeName: String? = nil, to table: String, through foreignKey: [String: String]) {
-        self.scopeName = scopeName ?? table
+    public init(named scopeName: String? = nil, to tableName: String, through foreignKey: [String: String]) {
+        self.scopeName = scopeName ?? tableName
         self.alias = nil
-        self.table = table
+        self.tableName = tableName
         self.foreignKey = foreignKey
     }
 }
@@ -424,8 +516,8 @@ extension ForeignRelation : JoinItemConvertible {
             scopeName: scopeName,
             required: false,
             selection: { [_SQLSelectionElement.Star(source: $0)] },
-            table: table,
-            alias: alias ?? scopeName,
+            tableName: tableName,
+            alias: alias ?? ((scopeName == tableName) ? nil : scopeName),
             condition: { (left, right) in self.foreignKey.map { (leftColumn, rightColumn) in right[rightColumn] == left[leftColumn] }.reduce(&&) },
             rightItems: [])
     }
@@ -441,17 +533,39 @@ class SQLSourceJoin {
     }
 }
 
-public struct ConcreteJoinItem {
-    let scopeName: String
-    var required: Bool
-    var selection: [_SQLSelectable]
-    let source: SQLSource
-    var condition: _SQLExpression
-    var rightItems: [ConcreteJoinItem]
+extension SQLSourceJoin : SQLSource {
+    var concreteSource: SQLConcreteSource {
+        let leftSource = self.leftSource.concreteSource
+        let rightItems = self.rightItems.map { $0.concreteJoinItem(leftSource) }
+        return SQLConcreteSourceJoin(leftSource: leftSource, rightItems: rightItems)
+    }
+    
+    func addJoinItem(item: JoinItem) -> SQLSource {
+        return SQLSourceJoin(leftSource: leftSource, rightItems: rightItems + [item])
+    }
 }
 
+class SQLConcreteSourceJoin {
+    let leftSource: SQLConcreteSource
+    let rightItems: [ConcreteJoinItem]
+    
+    init(leftSource: SQLConcreteSource, rightItems: [ConcreteJoinItem]) {
+        self.leftSource = leftSource
+        self.rightItems = rightItems
+    }
+}
 
-extension SQLSourceJoin : SQLSource {
+extension SQLConcreteSourceJoin : SQLSource {
+    var concreteSource: SQLConcreteSource {
+        return self
+    }
+    
+    func addJoinItem(item: JoinItem) -> SQLSource {
+        return SQLConcreteSourceJoin(leftSource: leftSource, rightItems: rightItems + [item.concreteJoinItem(leftSource)])
+    }
+}
+
+extension SQLConcreteSourceJoin : SQLConcreteSource {
     var name: String {
         get {
             return leftSource.name
@@ -461,12 +575,20 @@ extension SQLSourceJoin : SQLSource {
         }
     }
     
-    func sourceSQL(inout arguments: StatementArguments?) -> String {
-        return "TODO"
+    var properlyNamedSources: [SQLConcreteSource] {
+        var properlyNamedSources = leftSource.properlyNamedSources
+        for rightItem in rightItems {
+            properlyNamedSources.appendContentsOf(rightItem.source.properlyNamedSources)
+        }
+        return properlyNamedSources
     }
     
-    func addJoinItem(item: JoinItem) -> SQLSource {
-        return SQLSourceJoin(leftSource: leftSource, rightItems: rightItems + [item])
+    func sourceSQL(inout arguments: StatementArguments?) -> String {
+        var sql = leftSource.sourceSQL(&arguments)
+        for rightItem in rightItems {
+            sql += " " + rightItem.sql(&arguments, innerJoinForbidden: false)
+        }
+        return sql
     }
 }
 
@@ -647,7 +769,7 @@ public indirect enum _SQLExpression {
     case Value(DatabaseValue)
     
     /// For example: `name`, `table.name`
-    case Identifier(identifier: String, source: SQLSource?)
+    case Identifier(identifier: String, source: SQLConcreteSource?)
     
     /// For example: `name = 'foo' COLLATE NOCASE`
     case Collate(_SQLExpression, String)
@@ -892,7 +1014,7 @@ public enum _SQLSelectableKind {
 }
 
 enum _SQLSelectionElement {
-    case Star(source: SQLSource)
+    case Star(source: SQLConcreteSource)
     case Expression(expression: _SQLExpression, alias: String)
 }
 
@@ -937,7 +1059,7 @@ extension _SQLSelectionElement : _SQLSelectable {
 ///
 /// See https://github.com/groue/GRDB.swift#the-query-interface
 public struct SQLColumn {
-    let source: SQLSource?
+    let source: SQLConcreteSource?
     
     /// The name of the column
     public let name: String
@@ -948,7 +1070,7 @@ public struct SQLColumn {
         self.source = nil
     }
     
-    init(_ name: String, source: SQLSource?) {
+    init(_ name: String, source: SQLConcreteSource?) {
         self.name = name
         self.source = source
     }
