@@ -197,17 +197,12 @@ public struct _SQLSelectQuery {
 
 /// TODO
 public protocol SQLSource : class {
+    var name: String { get set }
     func sourceSQL(inout arguments: StatementArguments?) -> String
+    func addJoinItem(item: JoinItem) -> SQLSource
 }
 
-/// TODO
-public protocol SQLSourceWithIdentifier : SQLSource {
-    var alias: String? { get set }
-    var identifier: String { get }
-    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier
-}
-
-extension SQLSourceWithIdentifier {
+extension SQLSource {
     /// TODO: documentation
     public subscript(columnName: String) -> SQLColumn {
         return SQLColumn(columnName, source: self)
@@ -220,30 +215,35 @@ extension SQLSourceWithIdentifier {
 }
 
 class SQLSourceTable {
-    let name: String
+    let tableName: String
     var alias: String?
     
-    init(name: String, alias: String?) {
-        self.name = name
+    init(tableName: String, alias: String?) {
+        self.tableName = tableName
         self.alias = alias
     }
 }
 
 extension SQLSourceTable : SQLSource {
-    func sourceSQL(inout arguments: StatementArguments?) -> String {
-        if let alias = alias {
-            return name.quotedDatabaseIdentifier + " AS " + alias.quotedDatabaseIdentifier
-        } else {
-            return name.quotedDatabaseIdentifier
+    var name: String {
+        get {
+            return alias ?? tableName
+        }
+        set {
+            alias = newValue
         }
     }
-}
-
-extension SQLSourceTable : SQLSourceWithIdentifier {
-    var identifier: String { return alias ?? name }
     
-    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier {
-        return SQLSourceJoin(leftSource: self, joinItems: [item])
+    func sourceSQL(inout arguments: StatementArguments?) -> String {
+        if let alias = alias {
+            return tableName.quotedDatabaseIdentifier + " AS " + alias.quotedDatabaseIdentifier
+        } else {
+            return tableName.quotedDatabaseIdentifier
+        }
+    }
+    
+    func addJoinItem(item: JoinItem) -> SQLSource {
+        return SQLSourceJoin(leftSource: self, rightItems: [item])
     }
 }
 
@@ -258,6 +258,15 @@ class SQLSourceQuery {
 }
 
 extension SQLSourceQuery : SQLSource {
+    var name: String {
+        get {
+            return alias!
+        }
+        set {
+            alias = newValue
+        }
+    }
+    
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         if let alias = alias {
             return "(" + query.sql(&arguments) + ") AS " + alias.quotedDatabaseIdentifier
@@ -265,13 +274,9 @@ extension SQLSourceQuery : SQLSource {
             return "(" + query.sql(&arguments) + ")"
         }
     }
-}
-
-extension SQLSourceQuery : SQLSourceWithIdentifier {
-    var identifier: String { return alias! }
     
-    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier {
-        return SQLSourceJoin(leftSource: self, joinItems: [item])
+    func addJoinItem(item: JoinItem) -> SQLSource {
+        return SQLSourceJoin(leftSource: self, rightItems: [item])
     }
 }
 
@@ -282,10 +287,10 @@ extension SQLSourceQuery : SQLSourceWithIdentifier {
 public struct JoinItem {
     let scopeName: String
     var required: Bool
-    var selection: (SQLSourceWithIdentifier) -> [_SQLSelectable]
+    var selection: (SQLSource) -> [_SQLSelectable]
     let table: String
     var alias: String?
-    var condition: (left: SQLSourceWithIdentifier, right: SQLSourceWithIdentifier) -> _SQLExpressible
+    var condition: (left: SQLSource, right: SQLSource) -> _SQLExpressible
     var rightItems: [JoinItem]
 }
 
@@ -427,37 +432,41 @@ extension ForeignRelation : JoinItemConvertible {
 }
 
 class SQLSourceJoin {
-    let leftSource: SQLSourceWithIdentifier
-    let joinItems: [JoinItem]
+    let leftSource: SQLSource
+    let rightItems: [JoinItem]
     
-    init(leftSource: SQLSourceWithIdentifier, joinItems: [JoinItem]) {
+    init(leftSource: SQLSource, rightItems: [JoinItem]) {
         self.leftSource = leftSource
-        self.joinItems = joinItems
+        self.rightItems = rightItems
     }
 }
 
+public struct ConcreteJoinItem {
+    let scopeName: String
+    var required: Bool
+    var selection: [_SQLSelectable]
+    let source: SQLSource
+    var condition: _SQLExpression
+    var rightItems: [ConcreteJoinItem]
+}
+
+
 extension SQLSourceJoin : SQLSource {
+    var name: String {
+        get {
+            return leftSource.name
+        }
+        set {
+            leftSource.name = newValue
+        }
+    }
+    
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         return "TODO"
     }
-}
-
-extension SQLSourceJoin : SQLSourceWithIdentifier {
-    var alias: String? {
-        get {
-            return leftSource.alias
-        }
-        set {
-            leftSource.alias = newValue
-        }
-    }
     
-    var identifier: String {
-        return leftSource.identifier
-    }
-    
-    func addJoinItem(item: JoinItem) -> SQLSourceWithIdentifier {
-        return SQLSourceJoin(leftSource: leftSource, joinItems: joinItems + [item])
+    func addJoinItem(item: JoinItem) -> SQLSource {
+        return SQLSourceJoin(leftSource: leftSource, rightItems: rightItems + [item])
     }
 }
 
@@ -638,7 +647,7 @@ public indirect enum _SQLExpression {
     case Value(DatabaseValue)
     
     /// For example: `name`, `table.name`
-    case Identifier(identifier: String, source: SQLSourceWithIdentifier?)
+    case Identifier(identifier: String, source: SQLSource?)
     
     /// For example: `name = 'foo' COLLATE NOCASE`
     case Collate(_SQLExpression, String)
@@ -716,7 +725,7 @@ public indirect enum _SQLExpression {
             
         case .Identifier(let identifier, let source):
             if let source = source {
-                return source.identifier.quotedDatabaseIdentifier + "." + identifier.quotedDatabaseIdentifier
+                return source.name.quotedDatabaseIdentifier + "." + identifier.quotedDatabaseIdentifier
             } else {
                 return identifier.quotedDatabaseIdentifier
             }
@@ -878,12 +887,12 @@ public protocol _SQLSelectable {
 ///
 /// See https://github.com/groue/GRDB.swift/#the-query-interface
 public enum _SQLSelectableKind {
-    case Star(source: SQLSourceWithIdentifier)
+    case Star(source: SQLSource)
     case Expression(expression: _SQLExpression)
 }
 
 enum _SQLSelectionElement {
-    case Star(source: SQLSourceWithIdentifier)
+    case Star(source: SQLSource)
     case Expression(expression: _SQLExpression, alias: String)
 }
 
@@ -895,7 +904,7 @@ extension _SQLSelectionElement : _SQLSelectable {
             if starSource === querySource {
                 return "*"
             } else {
-                return starSource.identifier.quotedDatabaseIdentifier + ".*"
+                return starSource.name.quotedDatabaseIdentifier + ".*"
             }
         case .Expression(expression: let expression, alias: let alias):
             return expression.sql(&arguments) + " AS " + alias.quotedDatabaseIdentifier
@@ -928,7 +937,7 @@ extension _SQLSelectionElement : _SQLSelectable {
 ///
 /// See https://github.com/groue/GRDB.swift#the-query-interface
 public struct SQLColumn {
-    let source: SQLSourceWithIdentifier?
+    let source: SQLSource?
     
     /// The name of the column
     public let name: String
@@ -939,7 +948,7 @@ public struct SQLColumn {
         self.source = nil
     }
     
-    init(_ name: String, source: SQLSourceWithIdentifier?) {
+    init(_ name: String, source: SQLSource?) {
         self.name = name
         self.source = source
     }

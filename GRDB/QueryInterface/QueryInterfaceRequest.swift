@@ -8,7 +8,7 @@ public struct QueryInterfaceRequest<T> {
     ///
     /// It represents the SQL query `SELECT * FROM tableName`.
     public init(tableName: String) {
-        let source = SQLSourceTable(name: tableName, alias: nil)
+        let source = SQLSourceTable(tableName: tableName, alias: nil)
         self.init(query: _SQLSelectQuery(select: [_SQLSelectionElement.Star(source: source)], from: source))
     }
     
@@ -261,10 +261,10 @@ extension QueryInterfaceRequest {
     @warn_unused_result
     public func include(required required: Bool, _ items: [JoinItemConvertible]) -> QueryInterfaceRequest<T> {
         var query = self.query
-        guard let sourceWithIdentifier = query.source as? SQLSourceWithIdentifier else {
-            fatalError("Can't join on non-identifiable source")
+        guard let querySource = query.source else {
+            fatalError("Can't join")
         }
-        var source = sourceWithIdentifier
+        var source = querySource
         for item in items {
             var item = item.joinItem
             item.required = required
@@ -297,10 +297,10 @@ extension QueryInterfaceRequest {
     @warn_unused_result
     public func join(required required: Bool, _ items: [JoinItemConvertible]) -> QueryInterfaceRequest<T> {
         var query = self.query
-        guard let sourceWithIdentifier = query.source as? SQLSourceWithIdentifier else {
-            fatalError("Can't join on non-identifiable source")
+        guard let querySource = query.source else {
+            fatalError("Can't join")
         }
-        var source = sourceWithIdentifier
+        var source = querySource
         for item in items {
             var item = item.joinItem
             item.required = required
