@@ -267,7 +267,7 @@ extension QueryInterfaceRequest {
         var source = querySource
         for item in items {
             var item = item.joinItem
-            item.required = required
+            item.joinKind = required ? .Inner : .Left
             source = source.addJoinItem(item)
         }
         query.source = source
@@ -303,8 +303,8 @@ extension QueryInterfaceRequest {
         var source = querySource
         for item in items {
             var item = item.joinItem
-            item.required = required
-            item.selection = { _ in [] }
+            item.joinKind = required ? .Inner : .Left
+            item.includedSelection = { _ in [] }
             source = source.addJoinItem(item)
         }
         query.source = source

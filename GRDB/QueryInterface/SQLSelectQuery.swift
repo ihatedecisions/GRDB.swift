@@ -77,6 +77,10 @@ public struct _SQLSelectQuery {
             sql += " DISTINCT"
         }
         
+        var selection = self.selection
+        if let concreteSource = concreteSource {
+            selection = selection + concreteSource.includedSelection
+        }
         assert(!selection.isEmpty)
         sql += " " + selection.map { $0.selectionSQL(from: source, &arguments) }.joinWithSeparator(", ")
         
@@ -223,6 +227,7 @@ public protocol SQLSource : class {
 
 public protocol SQLConcreteSource : SQLSource {
     var name: String { get set }
+    var includedSelection: [_SQLSelectable] { get }
     var properlyNamedSources: [SQLConcreteSource] { get }
     func sourceSQL(inout arguments: StatementArguments?) -> String
 }
@@ -269,6 +274,10 @@ extension SQLSourceTable : SQLConcreteSource {
         }
     }
     
+    var includedSelection: [_SQLSelectable] {
+        return []
+    }
+    
     var properlyNamedSources: [SQLConcreteSource] {
         return [self]
     }
@@ -312,6 +321,10 @@ extension SQLSourceQuery : SQLConcreteSource {
         }
     }
     
+    var includedSelection: [_SQLSelectable] {
+        return []
+    }
+    
     var properlyNamedSources: [SQLConcreteSource] {
         return [self]
     }
@@ -329,10 +342,17 @@ extension SQLSourceQuery : SQLConcreteSource {
 // MARK: - Joins
 
 /// TODO: documentation
+public enum SQLJoinKind : String {
+    case Inner = "JOIN"
+    case Left = "LEFT JOIN"
+    case Cross = "CROSS JOIN"
+}
+
+/// TODO: documentation
 public struct JoinItem {
     let scopeName: String
-    var required: Bool
-    var selection: (SQLConcreteSource) -> [_SQLSelectable]
+    var joinKind: SQLJoinKind
+    var includedSelection: (SQLConcreteSource) -> [_SQLSelectable]
     let tableName: String
     var alias: String?
     var condition: (left: SQLConcreteSource, right: SQLConcreteSource) -> _SQLExpressible
@@ -344,19 +364,12 @@ extension JoinItem {
         let source = SQLSourceTable(tableName: tableName, alias: alias)
         return ConcreteJoinItem(
             scopeName: scopeName,
-            joinKind: required ? .Inner : .Left,
-            selection: selection(source),
+            joinKind: joinKind,
+            includedSelection: includedSelection(source),
             source: source,
             condition: condition(left: leftSource, right: source).sqlExpression,
             rightItems: rightItems.map { $0.concreteJoinItem(source) })
     }
-}
-
-/// TODO: documentation
-public enum SQLJoinKind : String {
-    case Inner = "JOIN"
-    case Left = "LEFT JOIN"
-    case Cross = "CROSS JOIN"
 }
 
 
@@ -364,7 +377,7 @@ public enum SQLJoinKind : String {
 public struct ConcreteJoinItem {
     let scopeName: String
     var joinKind: SQLJoinKind
-    var selection: [_SQLSelectable]
+    var includedSelection: [_SQLSelectable]
     let source: SQLConcreteSource
     var condition: _SQLExpression
     var rightItems: [ConcreteJoinItem]
@@ -422,7 +435,7 @@ extension JoinItemConvertible {
         var item = joinItem
         item.rightItems.appendContentsOf(items.map {
             var item = $0.joinItem
-            item.required = required
+            item.joinKind = required ? .Inner : .Left
             return item
             })
         return item
@@ -452,8 +465,8 @@ extension JoinItemConvertible {
         var item = joinItem
         item.rightItems.appendContentsOf(items.map {
             var item = $0.joinItem
-            item.required = required
-            item.selection = { _ in [] }
+            item.joinKind = required ? .Inner : .Left
+            item.includedSelection = { _ in [] }
             return item
             })
         return item
@@ -514,8 +527,8 @@ extension ForeignRelation : JoinItemConvertible {
     public var joinItem: JoinItem {
         return JoinItem(
             scopeName: scopeName,
-            required: false,
-            selection: { [_SQLSelectionElement.Star(source: $0)] },
+            joinKind: .Left,
+            includedSelection: { [_SQLSelectionElement.Star(source: $0)] },
             tableName: tableName,
             alias: alias ?? ((scopeName == tableName) ? nil : scopeName),
             condition: { (left, right) in self.foreignKey.map { (leftColumn, rightColumn) in right[rightColumn] == left[leftColumn] }.reduce(&&) },
@@ -573,6 +586,10 @@ extension SQLConcreteSourceJoin : SQLConcreteSource {
         set {
             leftSource.name = newValue
         }
+    }
+    
+    var includedSelection: [_SQLSelectable] {
+        return rightItems.flatMap { $0.includedSelection }
     }
     
     var properlyNamedSources: [SQLConcreteSource] {
