@@ -205,16 +205,18 @@ public protocol SQLSourceWithIdentifier : SQLSource {
     var identifier: String { get }
 }
 
-class SQLSourceTable : SQLSourceWithIdentifier {
+class SQLSourceTable {
     let name: String
     var alias: String?
-    
-    var identifier: String { return alias ?? name }
     
     init(name: String, alias: String?) {
         self.name = name
         self.alias = alias
     }
+}
+
+extension SQLSourceTable : SQLSourceWithIdentifier {
+    var identifier: String { return alias ?? name }
     
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         if let alias = alias {
@@ -225,16 +227,18 @@ class SQLSourceTable : SQLSourceWithIdentifier {
     }
 }
 
-class SQLSourceQuery : SQLSourceWithIdentifier {
+class SQLSourceQuery {
     let query: _SQLSelectQuery
     var alias: String?
-    
-    var identifier: String { return alias! }
     
     init(query: _SQLSelectQuery, alias: String?) {
         self.query = query
         self.alias = alias
     }
+}
+
+extension SQLSourceQuery : SQLSourceWithIdentifier {
+    var identifier: String { return alias! }
     
     func sourceSQL(inout arguments: StatementArguments?) -> String {
         if let alias = alias {
@@ -242,6 +246,130 @@ class SQLSourceQuery : SQLSourceWithIdentifier {
         } else {
             return "(" + query.sql(&arguments) + ")"
         }
+    }
+}
+
+
+// MARK: - Joins
+
+/// TODO: documentation
+public protocol SQLRelation {
+}
+
+
+extension SQLRelation {
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func include(relations: SQLRelation...) -> SQLRelation {
+        return include(required: false, relations)
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func include(required required: Bool, _ relations: SQLRelation...) -> SQLRelation {
+        return include(required: required, relations)
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func include(relations: [SQLRelation]) -> SQLRelation {
+        return include(required: false, relations)
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func include(required required: Bool, _ relations: [SQLRelation]) -> SQLRelation {
+        return self
+//        return ChainedRelation(baseRelation: self, joins: relations.map { Join(included: true, kind: required ? .Inner : .Left, relation: $0.fork()) })
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func join(relations: SQLRelation...) -> SQLRelation {
+        return join(required: false, relations)
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func join(required required: Bool, _ relations: SQLRelation...) -> SQLRelation {
+        return join(required: required, relations)
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func join(relations: [SQLRelation]) -> SQLRelation {
+        return join(required: false, relations)
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func join(required required: Bool, _ relations: [SQLRelation]) -> SQLRelation {
+        return self
+//        return ChainedRelation(baseRelation: self, joins: relations.map { Join(included: false, kind: required ? .Inner : .Left, relation: $0.fork()) })
+    }
+    
+    /// TODO: documentation
+    /// Extension method
+    @warn_unused_result
+    public func filter(sql sql: String, arguments: StatementArguments? = nil) -> SQLRelation {
+        return self
+//        return filter { _ in _SQLExpression.Literal("(\(sql))", arguments) }
+    }
+}
+
+
+/// TODO
+public struct ForeignRelation {
+    /// TODO
+    public let name: String // Scope name
+    var alias: String?      // Default table alias in SQL
+    let tableName: String   // Table name
+    let foreignKey: [String: String]
+    
+    /// TODO
+    public init(named name: String? = nil, to tableName: String, through foreignKey: [String: String]) {
+        self.name = name ?? tableName
+        if name != tableName {
+            self.alias = name
+        }
+        self.tableName = tableName
+        self.foreignKey = foreignKey
+    }
+}
+
+extension ForeignRelation {
+    /// TODO
+    public func aliased(alias: String) -> ForeignRelation {
+        var relation = self
+        relation.alias = alias
+        return relation
+    }
+}
+
+extension ForeignRelation {
+    /// TODO
+    public func select(selection: (SQLSource) -> [_SQLSelectable]) -> ForeignRelation {
+        // TODO
+        return self
+    }
+}
+
+extension ForeignRelation : SQLRelation {
+    
+}
+
+class SQLSourceJoin : SQLSource {
+    func sourceSQL(inout arguments: StatementArguments?) -> String {
+        return "TODO"
     }
 }
 

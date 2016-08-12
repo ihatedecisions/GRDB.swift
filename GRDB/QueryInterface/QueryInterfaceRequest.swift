@@ -236,6 +236,80 @@ extension QueryInterfaceRequest {
 
 extension QueryInterfaceRequest {
     
+    // MARK: Joins
+    
+    /// TODO: doc
+    @warn_unused_result
+    public func include(relations: SQLRelation...) -> QueryInterfaceRequest<T> {
+        return include(required: false, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public func include(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<T> {
+        return include(required: required, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public func include(relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
+        return include(required: false, relations)
+    }
+    
+    /// TODO: doc
+    /// TODO: test that request.include([assoc1, assoc2]) <=> request.include([assoc1]).include([assoc2])
+    @warn_unused_result
+    public func include(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
+        return self
+//        var query = self.query
+//        var source = query.source!
+//        for relation in relations {
+//            var relation = relation
+//            source = source.include(required: required, relation: &relation)
+//            query.joinedSelection.appendContentsOf(relation.selection(included: true))
+//        }
+//        query.source = source
+//        return QueryInterfaceRequest(query: query)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public func join(relations: SQLRelation...) -> QueryInterfaceRequest<T> {
+        return join(required: false, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public func join(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<T> {
+        return join(required: required, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public func join(relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
+        return join(required: false, relations)
+    }
+    
+    /// TODO: doc
+    /// TODO: test that request.join([assoc1, assoc2]) <=> request.join([assoc1]).join([assoc2])
+    @warn_unused_result
+    public func join(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<T> {
+        return self
+//        var query = self.query
+//        var source = query.source!
+//        for relation in relations {
+//            var relation = relation
+//            source = source.join(required: required, relation: &relation)
+//            query.joinedSelection.appendContentsOf(relation.selection(included: false))
+//        }
+//        query.source = source
+//        return QueryInterfaceRequest(query: query)
+    }
+}
+
+
+extension QueryInterfaceRequest {
+    
     // MARK: QueryInterfaceRequest as subquery
     
     /// Returns an SQL expression that checks the inclusion of a value in
@@ -331,6 +405,59 @@ extension TableMapping {
     @warn_unused_result
     public static func fetchCount(db: Database) -> Int {
         return all().fetchCount(db)
+    }
+}
+
+extension TableMapping {
+    
+    // MARK: Joins
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func include(relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
+        return include(required: false, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func include(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
+        return all().include(required: required, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func include(relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
+        return include(required: false, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func include(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
+        return all().include(required: required, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func join(relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
+        return join(required: false, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func join(required required: Bool, _ relations: SQLRelation...) -> QueryInterfaceRequest<Self> {
+        return all().join(required: required, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func join(relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
+        return join(required: false, relations)
+    }
+    
+    /// TODO: doc
+    @warn_unused_result
+    public static func join(required required: Bool, _ relations: [SQLRelation]) -> QueryInterfaceRequest<Self> {
+        return all().join(required: required, relations)
     }
 }
 
